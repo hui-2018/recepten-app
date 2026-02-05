@@ -7,59 +7,25 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="styles.css" />
   <meta name="theme-color" content="#111827" />
-
-  <!-- Dexie.js (IndexedDB wrapper) -->
-  <script src="https://cdn.jsdelivr.net/npm/dexie@3/dist/dexie.min.js"></script>
 </head>
+
 <body>
   <header class="topbar">
     <div class="brand">
       <div class="logo">🍲</div>
       <div>
         <div class="title">Recepten DB</div>
-        <div class="subtitle">Documenten + tags + zoeken + favorieten (offline)</div>
+        <div class="subtitle">Cloud sync via Supabase</div>
+        <div id="authInfo" class="muted">Niet ingelogd</div>
       </div>
     </div>
-<header class="topbar">
-<div
-  id="authInfo"
-  class="muted"
-  style="padding:6px 18px; font-size:12px;"
->
-  Niet ingelogd
-</div>
 
-  <div class="brand">
-    ...
-  </div>
-
-  <div class="actions">
-    <button id="btnNew" class="primary">Nieuw recept</button>
-  </div>
-</header>
-
-<div class="actions" style="display:flex; gap:10px; align-items:center;">
-  <!-- 1. Email input -->
-  <input
-    id="email"
-    type="email"
-    placeholder="jij@voorbeeld.be"
-    style="max-width:220px;"
-  />
-
-  <!-- 2. Login knop -->
-  <button id="btnLogin" class="secondary">
-    Login link
-  </button>
-
-  <!-- 3. Logout knop -->
-  <button id="btnLogout" class="secondary" style="display:none;">
-    Logout
-  </button>
-</div>
-
-<div id="authInfo" class="muted" style="margin-left:12px;"></div>
-
+    <div class="actions" style="display:flex; gap:10px; align-items:center;">
+      <input id="email" type="email" placeholder="jij@voorbeeld.be" style="max-width:220px;" />
+      <button id="btnLogin" class="secondary">Login link</button>
+      <button id="btnLogout" class="secondary" style="display:none;">Logout</button>
+      <button id="btnNew" class="primary">Nieuw recept</button>
+    </div>
   </header>
 
   <main class="grid">
@@ -120,8 +86,9 @@
   <footer class="footer muted">
     Tip: installeer als app via browsermenu → “Installeren” / “Toevoegen aan startscherm”.
   </footer>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
+  <!-- Supabase SDK MOET vóór app.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="app.js"></script>
 </body>
 </html>
