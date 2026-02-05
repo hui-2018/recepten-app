@@ -1,6 +1,6 @@
 // ---- Supabase config ----
-const SUPABASE_URL = "https://JOUWPROJECT.supabase.co";
-const SUPABASE_ANON_KEY = "JOUW_ANON_KEY_HIER";
+const SUPABASE_URL = "https://bduuymwmpjxnkhunreyl.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_PYkma9AgJZyhzTmwLRArxg_6Mggyyp8";
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ---- UI helpers ----
