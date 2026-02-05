@@ -64,6 +64,35 @@ async function loginWithMagicLink() {
 
   if (error) { setStatus(error.message, "err"); return; }
   setStatus("Check je e-mail voor de login link.", "ok");
+
+  if (!email) { setStatus("Geef je e-mail in.", "err"); return; }
+
+  const btn = $("btnLogin");
+  btn.disabled = true;
+
+  try {
+    setStatus("Bezig met login-link versturen... (klik niet opnieuw)", "");
+
+    const { error } = await sb.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: "https://hui-2018.github.io/recepten-app/",
+        shouldCreateUser: true
+      }
+    });
+
+    if (error) {
+      setStatus("Supabase error: " + error.message, "err");
+      return;
+    }
+
+    setStatus("Als alles goed ging, is er een mail verstuurd. Check ook spam.", "ok");
+  } finally {
+    // na 8s terug aan om 'spam klikken' te voorkomen
+    setTimeout(() => { btn.disabled = false; }, 8000);
+  }
+}
+
 }
 
 async function logout() {
