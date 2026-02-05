@@ -1,7 +1,11 @@
 // ---- Supabase config ----
 const SUPABASE_URL = "https://bduuymwmpjxnkhunreyl.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_PYkma9AgJZyhzTmwLRArxg_6Mggyyp8";
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// gebruik window.supabase (van de CDN)
+const sb = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY
+);
 
 // ---- UI helpers ----
 const $ = (id) => document.getElementById(id);
@@ -39,7 +43,7 @@ let currentUser = null;
 
 // ---- Auth ----
 async function refreshAuth() {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await sb.auth.getUser();
   currentUser = user || null;
 
   $("authInfo").textContent = currentUser ? `Ingelogd als ${currentUser.email}` : "Niet ingelogd";
@@ -53,7 +57,7 @@ async function loginWithMagicLink() {
   const email = $("email").value.trim();
   if (!email) { setStatus("Geef je e-mail in.", "err"); return; }
 
-  const { error } = await supabase.auth.signInWithOtp({
+  const { error } = await sb.auth.signInWithOtp({
     email,
     options: { emailRedirectTo: "https://hui-2018.github.io/recepten-app/" }
   });
@@ -63,7 +67,7 @@ async function loginWithMagicLink() {
 }
 
 async function logout() {
-  await supabase.auth.signOut();
+  await sb.auth.signOut();
   await refreshAuth();
   await clearEditor();
   await renderDocs();
@@ -93,7 +97,7 @@ async function upsertTags(tagNames) {
   }
 
   if (toInsert.length > 0) {
-    const { error: e2 } = await supabase.from("tags").insert(toInsert);
+    const { error: e2 } = await sb.from("tags").insert(toInsert);
     if (e2) throw e2;
   }
 
@@ -125,7 +129,7 @@ async function setRecipeTags(recipeId, tagNames) {
   // insert nieuwe links
   if (tags.length > 0) {
     const rows = tags.map(t => ({ recipe_id: recipeId, tag_id: t.id }));
-    const { error: i1 } = await supabase.from("recipe_tags").insert(rows);
+    const { error: i1 } = await sb.from("recipe_tags").insert(rows);
     if (i1) throw i1;
   }
 }
@@ -374,7 +378,7 @@ async function deleteDoc() {
   const id = Number(idRaw);
 
   // links verwijderen (RLS kan cascade ook, maar expliciet is ok)
-  await supabase.from("recipe_tags").delete().eq("recipe_id", id);
+  await sb.from("recipe_tags").delete().eq("recipe_id", id);
 
   const { error } = await supabase
     .from("recipes")
@@ -448,7 +452,7 @@ async function saveFavorite() {
   if (!q) { setStatus("Geen zoekterm om te bewaren.", "err"); return; }
   if (!name) { setStatus("Geef een naam voor de favoriet.", "err"); return; }
 
-  const { error } = await supabase.from("favorite_searches").insert([{
+  const { error } = await sb.from("favorite_searches").insert([{
     user_id: currentUser.id,
     name,
     query: q,
@@ -484,7 +488,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("btnLogout").addEventListener("click", logout);
 
   // auth state changes
-  supabase.auth.onAuthStateChange(async () => {
+  sb.auth.onAuthStateChange(async () => {
     await refreshAuth();
     await renderDocs();
     await renderFavorites();
