@@ -1,5 +1,6 @@
-const CACHE_NAME = "recepten-db-v1";
-const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.json"];
+const CACHE_NAME = "recepten-db-v2";
+const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.json", "./sw.js"];
+
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
