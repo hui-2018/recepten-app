@@ -55,7 +55,7 @@ async function loginWithMagicLink() {
 
   const { error } = await supabase.auth.signInWithOtp({
     email,
-    options: { emailRedirectTo: window.location.href }
+    options: { emailRedirectTo: "https://hui-2018.github.io/recepten-app/" }
   });
 
   if (error) { setStatus(error.message, "err"); return; }
