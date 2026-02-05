@@ -1,21 +1,17 @@
-// --- DB setup (IndexedDB via Dexie) ---
-const db = new Dexie("ReceptenDB");
-db.version(1).stores({
-  docs: "++id, title, updatedAt",
-  favorites: "++id, name, query, createdAt"
-});
+// ---- Supabase config ----
+const SUPABASE_URL = "https://JOUWPROJECT.supabase.co";
+const SUPABASE_ANON_KEY = "JOUW_ANON_KEY_HIER";
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// --- Helpers ---
+// ---- UI helpers ----
 const $ = (id) => document.getElementById(id);
 
 function normalizeTags(input) {
-  // comma-separated -> array of trimmed tags, remove empties, unique, keep original case but compare lower
   const parts = (input || "")
     .split(",")
     .map(s => s.trim())
     .filter(Boolean);
 
-  // unique (case-insensitive)
   const seen = new Set();
   const out = [];
   for (const t of parts) {
@@ -25,15 +21,7 @@ function normalizeTags(input) {
   return out;
 }
 
-function tagsToString(tags) {
-  return (tags || []).join(", ");
-}
-
-function setStatus(msg, kind = "") {
-  const el = $("status");
-  el.textContent = msg || "";
-  el.className = "status" + (kind ? ` ${kind}` : "");
-}
+function tagsToString(tags) { return (tags || []).join(", "); }
 
 function escapeHtml(s) {
   return (s || "").replace(/[&<>"']/g, (c) => ({
@@ -41,10 +29,136 @@ function escapeHtml(s) {
   }[c]));
 }
 
-// --- Rendering ---
+function setStatus(msg, kind="") {
+  const el = $("status");
+  el.textContent = msg || "";
+  el.className = "status" + (kind ? ` ${kind}` : "");
+}
+
+let currentUser = null;
+
+// ---- Auth ----
+async function refreshAuth() {
+  const { data: { user } } = await supabase.auth.getUser();
+  currentUser = user || null;
+
+  $("authInfo").textContent = currentUser ? `Ingelogd als ${currentUser.email}` : "Niet ingelogd";
+  document.body.classList.toggle("logged-in", !!currentUser);
+
+  // pas knoppen aan
+  $("btnLogout").style.display = currentUser ? "inline-block" : "none";
+}
+
+async function loginWithMagicLink() {
+  const email = $("email").value.trim();
+  if (!email) { setStatus("Geef je e-mail in.", "err"); return; }
+
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: window.location.href }
+  });
+
+  if (error) { setStatus(error.message, "err"); return; }
+  setStatus("Check je e-mail voor de login link.", "ok");
+}
+
+async function logout() {
+  await supabase.auth.signOut();
+  await refreshAuth();
+  await clearEditor();
+  await renderDocs();
+  await renderFavorites();
+  setStatus("Uitgelogd.", "ok");
+}
+
+// ---- DB helpers (tags) ----
+async function upsertTags(tagNames) {
+  // Zorg dat tags bestaan voor deze user, return tag rows
+  const names = tagNames.map(t => t.trim()).filter(Boolean);
+  if (names.length === 0) return [];
+
+  // Haal bestaande tags op (case-insensitive vergelijken doen we simpel met lower in JS)
+  const { data: existing, error: e1 } = await supabase
+    .from("tags")
+    .select("id,name")
+    .eq("user_id", currentUser.id);
+
+  if (e1) throw e1;
+
+  const existingMap = new Map(existing.map(t => [t.name.toLowerCase(), t]));
+  const toInsert = [];
+
+  for (const n of names) {
+    if (!existingMap.has(n.toLowerCase())) toInsert.push({ user_id: currentUser.id, name: n });
+  }
+
+  if (toInsert.length > 0) {
+    const { error: e2 } = await supabase.from("tags").insert(toInsert);
+    if (e2) throw e2;
+  }
+
+  // opnieuw ophalen zodat we alle ids hebben
+  const { data: allTags, error: e3 } = await supabase
+    .from("tags")
+    .select("id,name")
+    .eq("user_id", currentUser.id);
+
+  if (e3) throw e3;
+
+  const out = [];
+  const allMap = new Map(allTags.map(t => [t.name.toLowerCase(), t]));
+  for (const n of names) out.push(allMap.get(n.toLowerCase()));
+  return out.filter(Boolean);
+}
+
+async function setRecipeTags(recipeId, tagNames) {
+  const tags = await upsertTags(tagNames);
+
+  // delete oude links
+  const { error: d1 } = await supabase
+    .from("recipe_tags")
+    .delete()
+    .eq("recipe_id", recipeId);
+
+  if (d1) throw d1;
+
+  // insert nieuwe links
+  if (tags.length > 0) {
+    const rows = tags.map(t => ({ recipe_id: recipeId, tag_id: t.id }));
+    const { error: i1 } = await supabase.from("recipe_tags").insert(rows);
+    if (i1) throw i1;
+  }
+}
+
+// ---- Rendering ----
 async function renderDocs() {
-  const docs = await db.docs.orderBy("updatedAt").reverse().toArray();
-  $("docsMeta").textContent = `${docs.length} recept(en) in de database.`;
+  if (!currentUser) {
+    $("docsMeta").textContent = "Login om je recepten te zien.";
+    $("docsList").innerHTML = "";
+    return;
+  }
+
+  // haal recepten + tags op via join
+  const { data, error } = await supabase
+    .from("recipes")
+    .select(`
+      id, title, content, updated_at,
+      recipe_tags ( tags ( id, name ) )
+    `)
+    .eq("user_id", currentUser.id)
+    .order("updated_at", { ascending: false });
+
+  if (error) { setStatus(error.message, "err"); return; }
+
+  const docs = (data || []).map(r => ({
+    id: r.id,
+    title: r.title,
+    content: r.content,
+    updatedAt: r.updated_at,
+    tags: (r.recipe_tags || []).map(rt => rt.tags?.name).filter(Boolean)
+  }));
+
+  $("docsMeta").textContent = `${docs.length} recept(en) in de cloud.`;
 
   const ul = $("docsList");
   ul.innerHTML = "";
@@ -61,9 +175,7 @@ async function renderDocs() {
             ${(d.tags || []).map(t => `<span class="badge">${escapeHtml(t)}</span>`).join("")}
           </div>
         </div>
-        <div>
-          <button data-open="${d.id}">Open</button>
-        </div>
+        <div><button data-open="${d.id}">Open</button></div>
       </div>
     `;
     ul.appendChild(li);
@@ -78,19 +190,28 @@ async function renderDocs() {
 }
 
 async function renderFavorites() {
-  const favs = await db.favorites.orderBy("createdAt").reverse().toArray();
-  const ul = $("favList");
-  ul.innerHTML = "";
-
-  if (favs.length === 0) {
-    const li = document.createElement("li");
-    li.className = "muted";
-    li.textContent = "Nog geen favorieten.";
-    ul.appendChild(li);
+  if (!currentUser) {
+    $("favList").innerHTML = `<li class="muted">Login om favorieten te zien.</li>`;
     return;
   }
 
-  for (const f of favs) {
+  const { data, error } = await supabase
+    .from("favorite_searches")
+    .select("id,name,query,created_at")
+    .eq("user_id", currentUser.id)
+    .order("created_at", { ascending: false });
+
+  if (error) { setStatus(error.message, "err"); return; }
+
+  const ul = $("favList");
+  ul.innerHTML = "";
+
+  if (!data || data.length === 0) {
+    ul.innerHTML = `<li class="muted">Nog geen favorieten.</li>`;
+    return;
+  }
+
+  for (const f of data) {
     const li = document.createElement("li");
     li.className = "item";
     li.innerHTML = `
@@ -111,7 +232,7 @@ async function renderFavorites() {
   ul.querySelectorAll("button[data-run]").forEach(btn => {
     btn.addEventListener("click", async () => {
       const id = Number(btn.getAttribute("data-run"));
-      const fav = await db.favorites.get(id);
+      const fav = data.find(x => x.id === id);
       if (!fav) return;
       $("searchInput").value = fav.query;
       await runSearch();
@@ -121,7 +242,13 @@ async function renderFavorites() {
   ul.querySelectorAll("button[data-del]").forEach(btn => {
     btn.addEventListener("click", async () => {
       const id = Number(btn.getAttribute("data-del"));
-      await db.favorites.delete(id);
+      const { error } = await supabase
+        .from("favorite_searches")
+        .delete()
+        .eq("id", id)
+        .eq("user_id", currentUser.id);
+
+      if (error) { setStatus(error.message, "err"); return; }
       await renderFavorites();
       setStatus("Favoriet verwijderd.", "ok");
     });
@@ -144,9 +271,7 @@ function renderResults(results, query) {
             ${(d.tags || []).map(t => `<span class="badge">${escapeHtml(t)}</span>`).join("")}
           </div>
         </div>
-        <div>
-          <button data-open="${d.id}">Open</button>
-        </div>
+        <div><button data-open="${d.id}">Open</button></div>
       </div>
     `;
     ul.appendChild(li);
@@ -160,7 +285,7 @@ function renderResults(results, query) {
   });
 }
 
-// --- CRUD ---
+// ---- Editor ----
 async function clearEditor() {
   $("docId").value = "";
   $("docTitle").value = "";
@@ -171,36 +296,67 @@ async function clearEditor() {
 }
 
 async function loadDoc(id) {
-  const d = await db.docs.get(id);
-  if (!d) return;
+  if (!currentUser) return;
 
-  $("docId").value = String(d.id);
-  $("docTitle").value = d.title || "";
-  $("docTags").value = tagsToString(d.tags);
-  $("docContent").value = d.content || "";
-  $("editorTitle").textContent = `Editor (ID: ${d.id})`;
+  const { data, error } = await supabase
+    .from("recipes")
+    .select(`
+      id,title,content,updated_at,
+      recipe_tags ( tags ( name ) )
+    `)
+    .eq("id", id)
+    .eq("user_id", currentUser.id)
+    .single();
+
+  if (error) { setStatus(error.message, "err"); return; }
+
+  $("docId").value = String(data.id);
+  $("docTitle").value = data.title || "";
+  $("docContent").value = data.content || "";
+  const tags = (data.recipe_tags || []).map(rt => rt.tags?.name).filter(Boolean);
+  $("docTags").value = tagsToString(tags);
+
+  $("editorTitle").textContent = `Editor (ID: ${data.id})`;
   setStatus("Document geladen.", "ok");
 }
 
 async function saveDoc() {
+  if (!currentUser) { setStatus("Login om op te slaan.", "err"); return; }
+
   const idRaw = $("docId").value.trim();
   const title = $("docTitle").value.trim();
-  const tags = normalizeTags($("docTags").value);
   const content = $("docContent").value;
+  const tagNames = normalizeTags($("docTags").value);
 
   if (!title && !content.trim()) {
     setStatus("Geef minstens een titel of inhoud.", "err");
     return;
   }
 
-  const now = Date.now();
-
   if (idRaw) {
     const id = Number(idRaw);
-    await db.docs.update(id, { title, tags, content, updatedAt: now });
+    const { error } = await supabase
+      .from("recipes")
+      .update({ title, content, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .eq("user_id", currentUser.id);
+
+    if (error) { setStatus(error.message, "err"); return; }
+
+    await setRecipeTags(id, tagNames);
     setStatus("Wijzigingen opgeslagen.", "ok");
   } else {
-    const newId = await db.docs.add({ title, tags, content, updatedAt: now });
+    const { data, error } = await supabase
+      .from("recipes")
+      .insert([{ user_id: currentUser.id, title, content, updated_at: new Date().toISOString() }])
+      .select("id")
+      .single();
+
+    if (error) { setStatus(error.message, "err"); return; }
+
+    const newId = data.id;
+    await setRecipeTags(newId, tagNames);
+
     $("docId").value = String(newId);
     $("editorTitle").textContent = `Editor (ID: ${newId})`;
     setStatus("Nieuw document opgeslagen.", "ok");
@@ -210,59 +366,108 @@ async function saveDoc() {
 }
 
 async function deleteDoc() {
+  if (!currentUser) return;
+
   const idRaw = $("docId").value.trim();
-  if (!idRaw) {
-    setStatus("Geen document geselecteerd om te verwijderen.", "err");
-    return;
-  }
+  if (!idRaw) { setStatus("Geen document geselecteerd.", "err"); return; }
+
   const id = Number(idRaw);
-  await db.docs.delete(id);
+
+  // links verwijderen (RLS kan cascade ook, maar expliciet is ok)
+  await supabase.from("recipe_tags").delete().eq("recipe_id", id);
+
+  const { error } = await supabase
+    .from("recipes")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", currentUser.id);
+
+  if (error) { setStatus(error.message, "err"); return; }
+
   await clearEditor();
   await renderDocs();
   setStatus("Document verwijderd.", "ok");
 }
 
-// --- Search in tags (substring contains) ---
+// ---- Search: tags contains ----
 async function runSearch() {
-  const q = $("searchInput").value.trim().toLowerCase();
+  if (!currentUser) { setStatus("Login om te zoeken.", "err"); return; }
+  const q = $("searchInput").value.trim();
   if (!q) {
-    renderResults([], "");
     $("resultsMeta").textContent = "Geef een zoekterm in.";
+    $("resultsList").innerHTML = "";
     return;
   }
 
-  const all = await db.docs.toArray();
-  const results = all.filter(d =>
-    (d.tags || []).some(t => t.toLowerCase().includes(q))
-  );
+  // 1) zoek tags met contains
+  const { data: tags, error: e1 } = await supabase
+    .from("tags")
+    .select("id,name")
+    .eq("user_id", currentUser.id)
+    .ilike("name", `%${q}%`);
 
+  if (e1) { setStatus(e1.message, "err"); return; }
+  if (!tags || tags.length === 0) {
+    renderResults([], q);
+    return;
+  }
+
+  const tagIds = tags.map(t => t.id);
+
+  // 2) vind recipes die gekoppeld zijn aan die tags
+  const { data: rows, error: e2 } = await supabase
+    .from("recipe_tags")
+    .select(`
+      recipe_id,
+      recipes ( id,title,updated_at, recipe_tags ( tags ( name ) ) )
+    `)
+    .in("tag_id", tagIds);
+
+  if (e2) { setStatus(e2.message, "err"); return; }
+
+  // dedupe recipes
+  const map = new Map();
+  for (const r of rows || []) {
+    const rec = r.recipes;
+    if (!rec) continue;
+    if (!map.has(rec.id)) {
+      const recTags = (rec.recipe_tags || []).map(rt => rt.tags?.name).filter(Boolean);
+      map.set(rec.id, { id: rec.id, title: rec.title, updatedAt: rec.updated_at, tags: recTags });
+    }
+  }
+
+  const results = Array.from(map.values());
   renderResults(results, q);
 }
 
 async function saveFavorite() {
+  if (!currentUser) { setStatus("Login om favorieten te bewaren.", "err"); return; }
+
   const q = $("searchInput").value.trim();
   const name = $("favName").value.trim();
-
   if (!q) { setStatus("Geen zoekterm om te bewaren.", "err"); return; }
   if (!name) { setStatus("Geef een naam voor de favoriet.", "err"); return; }
 
-  await db.favorites.add({ name, query: q, createdAt: Date.now() });
+  const { error } = await supabase.from("favorite_searches").insert([{
+    user_id: currentUser.id,
+    name,
+    query: q,
+    created_at: new Date().toISOString()
+  }]);
+
+  if (error) { setStatus(error.message, "err"); return; }
   $("favName").value = "";
   await renderFavorites();
   setStatus("Favoriet opgeslagen.", "ok");
 }
 
-// --- PWA registration ---
+// ---- PWA SW (kan blijven) ----
 async function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
-  try {
-    await navigator.serviceWorker.register("./sw.js");
-  } catch (_) {
-    // service workers vereisen meestal http(s), niet file://
-  }
+  try { await navigator.serviceWorker.register("./sw.js"); } catch (_) {}
 }
 
-// --- Wire up UI ---
+// ---- Wire up ----
 window.addEventListener("DOMContentLoaded", async () => {
   await registerServiceWorker();
 
@@ -272,23 +477,20 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("btnDelete").addEventListener("click", deleteDoc);
 
   $("btnSearch").addEventListener("click", runSearch);
-  $("searchInput").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") runSearch();
-  });
-
+  $("searchInput").addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
   $("btnSaveFav").addEventListener("click", saveFavorite);
 
-  // Demo-content als DB leeg is
-  const count = await db.docs.count();
-  if (count === 0) {
-    await db.docs.add({
-      title: "Demo: Snelle pasta",
-      tags: ["pasta", "snel", "vega"],
-      content: "Kook pasta. Bak look + chili in olijfolie. Voeg pasta + pastawater toe. Werk af met peterselie.",
-      updatedAt: Date.now()
-    });
-  }
+  $("btnLogin").addEventListener("click", loginWithMagicLink);
+  $("btnLogout").addEventListener("click", logout);
 
+  // auth state changes
+  supabase.auth.onAuthStateChange(async () => {
+    await refreshAuth();
+    await renderDocs();
+    await renderFavorites();
+  });
+
+  await refreshAuth();
   await renderDocs();
   await renderFavorites();
 });
