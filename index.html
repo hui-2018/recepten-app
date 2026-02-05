@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Recepten DB</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="styles.css" />
+  <meta name="theme-color" content="#111827" />
+
+  <!-- Dexie.js (IndexedDB wrapper) -->
+  <script src="https://cdn.jsdelivr.net/npm/dexie@3/dist/dexie.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">🍲</div>
+      <div>
+        <div class="title">Recepten DB</div>
+        <div class="subtitle">Documenten + tags + zoeken + favorieten (offline)</div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="btnNew" class="primary">Nieuw recept</button>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="card">
+      <h2>Zoeken</h2>
+      <div class="row">
+        <input id="searchInput" type="text" placeholder='Zoek in tags/labels (bv. "pasta" of "vega")' />
+        <button id="btnSearch">Zoek</button>
+      </div>
+
+      <div class="row">
+        <input id="favName" type="text" placeholder="Naam voor favoriet (bv. Snelle pasta)" />
+        <button id="btnSaveFav" class="secondary">Bewaar favoriet</button>
+      </div>
+
+      <div class="split">
+        <div>
+          <h3>Favoriete zoekopdrachten</h3>
+          <ul id="favList" class="list"></ul>
+        </div>
+        <div>
+          <h3>Resultaten</h3>
+          <div id="resultsMeta" class="muted"></div>
+          <ul id="resultsList" class="list"></ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Recepten</h2>
+      <div id="docsMeta" class="muted"></div>
+      <ul id="docsList" class="list"></ul>
+    </section>
+
+    <section class="card">
+      <h2 id="editorTitle">Editor</h2>
+
+      <input id="docId" type="hidden" />
+      <label class="label">Titel</label>
+      <input id="docTitle" type="text" placeholder="Bv. Spaghetti aglio e olio" />
+
+      <label class="label">Tags / labels (komma-gescheiden)</label>
+      <input id="docTags" type="text" placeholder="bv. pasta, snel, vega" />
+
+      <label class="label">Inhoud</label>
+      <textarea id="docContent" rows="10" placeholder="Recepttekst..."></textarea>
+
+      <div class="row right">
+        <button id="btnDelete" class="danger">Verwijder</button>
+        <button id="btnClear">Leegmaken</button>
+        <button id="btnSave" class="primary">Opslaan</button>
+      </div>
+
+      <div id="status" class="status"></div>
+    </section>
+  </main>
+
+  <footer class="footer muted">
+    Tip: installeer als app via browsermenu → “Installeren” / “Toevoegen aan startscherm”.
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
