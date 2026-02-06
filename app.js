@@ -574,4 +574,3 @@ sb.auth.onAuthStateChange(async (event) => {
     $("resultsList").innerHTML = "";
   }
 });
-
