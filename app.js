@@ -3,8 +3,8 @@
 // ===============================
 
 // 1) Vul deze 2 waarden in vanuit Supabase: Project Settings → API
-const SUPABASE_URL = "https://bduuymwmpjxnkhunreyl.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_PYkma9AgJZyhzTmwLRArxg_6Mggyyp8";
+const SUPABASE_URL = "https://bduuymwmpjxnkhunreyl.supabase.co"; // jouw URL
+const SUPABASE_ANON_KEY = "PASTE_HIER_JE_ANON_PUBLIC_KEY";       // jouw anon public key
 
 // 2) Maak Supabase client (sb) via de CDN library in index.html
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -43,7 +43,6 @@ function setStatus(msg, kind = "") {
 }
 
 function appBaseUrl() {
-  // GitHub Pages base path
   return "https://hui-2018.github.io/recepten-app/";
 }
 
@@ -53,8 +52,13 @@ let currentUser = null;
 // Auth
 // ===============================
 async function refreshAuth() {
-  const { data: { user } } = await sb.auth.getUser();
-  currentUser = user || null;
+  const { data: { user }, error } = await sb.auth.getUser();
+  if (error) {
+    setStatus(error.message, "err");
+    currentUser = null;
+  } else {
+    currentUser = user || null;
+  }
 
   const info = $("authInfo");
   if (info) info.textContent = currentUser ? `Ingelogd als ${currentUser.email}` : "Niet ingelogd";
@@ -88,7 +92,6 @@ async function loginWithMagicLink() {
 
     setStatus("Mail verstuurd. Check je inbox en spam.", "ok");
   } finally {
-    // voorkom spam-kliks
     setTimeout(() => { btn.disabled = false; }, 8000);
   }
 }
@@ -109,6 +112,7 @@ async function getAllTagsForUser() {
   const { data, error } = await sb
     .from("tags")
     .select("id,name")
+    .eq("user_id", currentUser.id)
     .order("name", { ascending: true });
 
   if (error) throw error;
@@ -125,7 +129,7 @@ async function upsertTags(tagNames) {
   const toInsert = [];
   for (const n of names) {
     if (!map.has(n.toLowerCase())) {
-      toInsert.push({ name: n }); // user_id wordt via RLS default/trigger niet gezet; we zetten hem expliciet in SQL policies (zie below)
+      toInsert.push({ user_id: currentUser.id, name: n });
     }
   }
 
@@ -134,10 +138,8 @@ async function upsertTags(tagNames) {
     if (error) throw error;
   }
 
-  // opnieuw ophalen om ids te hebben
   const all = await getAllTagsForUser();
   const allMap = new Map(all.map(t => [t.name.toLowerCase(), t]));
-
   return names.map(n => allMap.get(n.toLowerCase())).filter(Boolean);
 }
 
@@ -178,6 +180,7 @@ async function renderDocs() {
       id, title, content, updated_at,
       recipe_tags ( tags ( id, name ) )
     `)
+    .eq("user_id", currentUser.id)
     .order("updated_at", { ascending: false });
 
   if (error) {
@@ -233,6 +236,7 @@ async function renderFavorites() {
   const { data, error } = await sb
     .from("favorite_searches")
     .select("id,name,query,created_at")
+    .eq("user_id", currentUser.id)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -272,7 +276,9 @@ async function renderFavorites() {
         .from("favorite_searches")
         .select("query")
         .eq("id", id)
+        .eq("user_id", currentUser.id)
         .single();
+
       if (error) { setStatus(error.message, "err"); return; }
 
       $("searchInput").value = fav.query;
@@ -283,7 +289,12 @@ async function renderFavorites() {
   ul.querySelectorAll("button[data-del]").forEach(btn => {
     btn.addEventListener("click", async () => {
       const id = Number(btn.getAttribute("data-del"));
-      const { error } = await sb.from("favorite_searches").delete().eq("id", id);
+      const { error } = await sb
+        .from("favorite_searches")
+        .delete()
+        .eq("id", id)
+        .eq("user_id", currentUser.id);
+
       if (error) { setStatus(error.message, "err"); return; }
       await renderFavorites();
       setStatus("Favoriet verwijderd.", "ok");
@@ -342,6 +353,7 @@ async function loadDoc(id) {
       recipe_tags ( tags ( name ) )
     `)
     .eq("id", id)
+    .eq("user_id", currentUser.id)
     .single();
 
   if (error) { setStatus(error.message, "err"); return; }
@@ -375,7 +387,8 @@ async function saveDoc() {
     const { error } = await sb
       .from("recipes")
       .update({ title, content, updated_at: new Date().toISOString() })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("user_id", currentUser.id);
 
     if (error) { setStatus(error.message, "err"); return; }
 
@@ -390,7 +403,12 @@ async function saveDoc() {
   } else {
     const { data, error } = await sb
       .from("recipes")
-      .insert([{ title, content, updated_at: new Date().toISOString() }])
+      .insert([{
+        user_id: currentUser.id,
+        title,
+        content,
+        updated_at: new Date().toISOString()
+      }])
       .select("id")
       .single();
 
@@ -421,7 +439,12 @@ async function deleteDoc() {
   const id = Number(idRaw);
 
   await sb.from("recipe_tags").delete().eq("recipe_id", id);
-  const { error } = await sb.from("recipes").delete().eq("id", id);
+
+  const { error } = await sb
+    .from("recipes")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", currentUser.id);
 
   if (error) { setStatus(error.message, "err"); return; }
 
@@ -443,10 +466,11 @@ async function runSearch() {
     return;
   }
 
-  // 1) tags met contains
+  // 1) tags met contains (alleen eigen tags)
   const { data: tags, error: e1 } = await sb
     .from("tags")
     .select("id,name")
+    .eq("user_id", currentUser.id)
     .ilike("name", `%${q}%`);
 
   if (e1) { setStatus(e1.message, "err"); return; }
@@ -459,7 +483,7 @@ async function runSearch() {
     .from("recipe_tags")
     .select(`
       recipe_id,
-      recipes ( id,title,updated_at, recipe_tags ( tags ( name ) ) )
+      recipes ( id,title,updated_at, user_id, recipe_tags ( tags ( name ) ) )
     `)
     .in("tag_id", tagIds);
 
@@ -469,6 +493,8 @@ async function runSearch() {
   for (const r of rows || []) {
     const rec = r.recipes;
     if (!rec) continue;
+    if (rec.user_id !== currentUser.id) continue;
+
     if (!map.has(rec.id)) {
       const recTags = (rec.recipe_tags || []).map(rt => rt.tags?.name).filter(Boolean);
       map.set(rec.id, { id: rec.id, title: rec.title, updatedAt: rec.updated_at, tags: recTags });
@@ -490,6 +516,7 @@ async function saveFavorite() {
   if (!name) { setStatus("Geef een naam voor de favoriet.", "err"); return; }
 
   const { error } = await sb.from("favorite_searches").insert([{
+    user_id: currentUser.id,
     name,
     query: q,
     created_at: new Date().toISOString()
