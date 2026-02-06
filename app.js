@@ -1,16 +1,35 @@
 // ===============================
-// Recepten DB (Supabase Cloud)
+// Recepten DB (Supabase Cloud) - CLEAN VERSION
 // ===============================
 
 // 1) Vul deze 2 waarden in vanuit Supabase: Project Settings → API
 const SUPABASE_URL = "https://bduuymwmpjxnkhunreyl.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJkdXV5bXdtcGp4bmtodW5yZXlsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAzMDEzNTMsImV4cCI6MjA4NTg3NzM1M30.jD64IVrN3e9Qjb9Xq1PzMQxplhLmM5FCOtV31gfE8Sc";
 
-// 2) Maak Supabase client (sb) via de CDN library in index.html
+// 2) Supabase client via CDN (index.html laadt @supabase/supabase-js@2)
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// ---- UI helpers ----
+// -------------------------------
+// Helpers
+// -------------------------------
 const $ = (id) => document.getElementById(id);
+
+function setStatus(msg, kind = "") {
+  const el = $("status");
+  if (!el) return;
+  el.textContent = msg || "";
+  el.className = "status" + (kind ? ` ${kind}` : "");
+}
+
+function escapeHtml(s) {
+  return (s || "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[c]));
+}
 
 function normalizeTags(input) {
   const parts = (input || "")
@@ -27,35 +46,28 @@ function normalizeTags(input) {
   return out;
 }
 
-function tagsToString(tags) { return (tags || []).join(", "); }
-
-function escapeHtml(s) {
-  return (s || "").replace(/[&<>"']/g, (c) => ({
-    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
-  }[c]));
-}
-
-function setStatus(msg, kind = "") {
-  const el = $("status");
-  if (!el) return;
-  el.textContent = msg || "";
-  el.className = "status" + (kind ? ` ${kind}` : "");
+function tagsToString(tags) {
+  return (tags || []).join(", ");
 }
 
 function appBaseUrl() {
+  // jouw GitHub Pages app root
   return "https://hui-2018.github.io/recepten-app/";
 }
 
+// -------------------------------
+// State
+// -------------------------------
 let currentUser = null;
 
-// ===============================
+// -------------------------------
 // Auth
-// ===============================
+// -------------------------------
 async function refreshAuth() {
   const { data: { user }, error } = await sb.auth.getUser();
   if (error) {
-    setStatus(error.message, "err");
     currentUser = null;
+    setStatus(error.message, "err");
   } else {
     currentUser = user || null;
   }
@@ -72,7 +84,7 @@ async function loginWithMagicLink() {
   if (!email) { setStatus("Geef je e-mail in.", "err"); return; }
 
   const btn = $("btnLogin");
-  btn.disabled = true;
+  if (btn) btn.disabled = true;
 
   try {
     setStatus("Bezig met login-link versturen... (klik niet opnieuw)", "");
@@ -92,7 +104,7 @@ async function loginWithMagicLink() {
 
     setStatus("Mail verstuurd. Check je inbox en spam.", "ok");
   } finally {
-    setTimeout(() => { btn.disabled = false; }, 8000);
+    if (btn) setTimeout(() => { btn.disabled = false; }, 8000);
   }
 }
 
@@ -105,9 +117,9 @@ async function logout() {
   setStatus("Uitgelogd.", "ok");
 }
 
-// ===============================
-// Tags helpers (many-to-many)
-// ===============================
+// -------------------------------
+// Tags (many-to-many)
+// -------------------------------
 async function getAllTagsForUser() {
   const { data, error } = await sb
     .from("tags")
@@ -160,9 +172,9 @@ async function setRecipeTags(recipeId, tagNames) {
   }
 }
 
-// ===============================
+// -------------------------------
 // Rendering
-// ===============================
+// -------------------------------
 async function renderDocs() {
   const meta = $("docsMeta");
   const list = $("docsList");
@@ -177,16 +189,13 @@ async function renderDocs() {
   const { data, error } = await sb
     .from("recipes")
     .select(`
-      id, title, content, updated_at,
+      id, title, content, updated_at, user_id,
       recipe_tags ( tags ( id, name ) )
     `)
     .eq("user_id", currentUser.id)
     .order("updated_at", { ascending: false });
 
-  if (error) {
-    setStatus(error.message, "err");
-    return;
-  }
+  if (error) { setStatus(error.message, "err"); return; }
 
   const docs = (data || []).map(r => ({
     id: r.id,
@@ -213,7 +222,7 @@ async function renderDocs() {
         </div>
         <div><button data-open="${d.id}">Open</button></div>
       </div>
-    ;
+    `;
     list.appendChild(li);
   }
 
@@ -235,38 +244,34 @@ async function renderFavorites() {
 
   const { data, error } = await sb
     .from("favorite_searches")
-    .select("id,name,query,created_at")
+    .select("id,name,query,created_at,user_id")
     .eq("user_id", currentUser.id)
     .order("created_at", { ascending: false });
 
-  if (error) {
-    setStatus(error.message, "err");
-    return;
-  }
+  if (error) { setStatus(error.message, "err"); return; }
 
   ul.innerHTML = "";
 
   if (!data || data.length === 0) {
-   ul.innerHTML = `<li class="muted">Nog geen favorieten.</li>`;
+    ul.innerHTML = `<li class="muted">Nog geen favorieten.</li>`;
     return;
   }
 
   for (const f of data) {
     const li = document.createElement("li");
     li.className = "item";
-   li.innerHTML = `
-  <div class="itemTop">
-    <div>
-      <div><strong>${escapeHtml(f.name)}</strong></div>
-      <div class="muted">Query: ${escapeHtml(f.query)}</div>
-    </div>
-    <div style="display:flex; gap:8px;">
-      <button data-run="${f.id}">Gebruik</button>
-      <button data-del="${f.id}" class="danger">X</button>
-    </div>
-  </div>
-`;
-
+    li.innerHTML = `
+      <div class="itemTop">
+        <div>
+          <div><strong>${escapeHtml(f.name)}</strong></div>
+          <div class="muted">Query: ${escapeHtml(f.query)}</div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button data-run="${f.id}">Gebruik</button>
+          <button data-del="${f.id}" class="danger">X</button>
+        </div>
+      </div>
+    `;
     ul.appendChild(li);
   }
 
@@ -332,9 +337,9 @@ function renderResults(results, query) {
   });
 }
 
-// ===============================
+// -------------------------------
 // Editor CRUD
-// ===============================
+// -------------------------------
 async function clearEditor() {
   $("docId").value = "";
   $("docTitle").value = "";
@@ -350,7 +355,7 @@ async function loadDoc(id) {
   const { data, error } = await sb
     .from("recipes")
     .select(`
-      id,title,content,updated_at,
+      id,title,content,updated_at,user_id,
       recipe_tags ( tags ( name ) )
     `)
     .eq("id", id)
@@ -454,9 +459,9 @@ async function deleteDoc() {
   setStatus("Document verwijderd.", "ok");
 }
 
-// ===============================
-// Search: tags contains
-// ===============================
+// -------------------------------
+// Search (tags contains)
+// -------------------------------
 async function runSearch() {
   if (!currentUser) { setStatus("Login om te zoeken.", "err"); return; }
 
@@ -467,7 +472,6 @@ async function runSearch() {
     return;
   }
 
-  // 1) tags met contains (alleen eigen tags)
   const { data: tags, error: e1 } = await sb
     .from("tags")
     .select("id,name")
@@ -479,12 +483,11 @@ async function runSearch() {
 
   const tagIds = tags.map(t => t.id);
 
-  // 2) recipes via recipe_tags
   const { data: rows, error: e2 } = await sb
     .from("recipe_tags")
     .select(`
       recipe_id,
-      recipes ( id,title,updated_at, user_id, recipe_tags ( tags ( name ) ) )
+      recipes ( id,title,updated_at,user_id, recipe_tags ( tags ( name ) ) )
     `)
     .in("tag_id", tagIds);
 
@@ -505,9 +508,9 @@ async function runSearch() {
   renderResults(Array.from(map.values()), q);
 }
 
-// ===============================
+// -------------------------------
 // Favorites
-// ===============================
+// -------------------------------
 async function saveFavorite() {
   if (!currentUser) { setStatus("Login om favorieten te bewaren.", "err"); return; }
 
@@ -530,17 +533,17 @@ async function saveFavorite() {
   setStatus("Favoriet opgeslagen.", "ok");
 }
 
-// ===============================
+// -------------------------------
 // PWA
-// ===============================
+// -------------------------------
 async function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   try { await navigator.serviceWorker.register("./sw.js"); } catch (_) {}
 }
 
-// ===============================
+// -------------------------------
 // Boot
-// ===============================
+// -------------------------------
 window.addEventListener("DOMContentLoaded", async () => {
   await registerServiceWorker();
 
@@ -576,7 +579,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // Initieel laden
+  // Initieel
   await refreshAuth();
   await renderDocs();
   await renderFavorites();
