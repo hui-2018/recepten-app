@@ -4,7 +4,7 @@
 
 // 1) Vul deze 2 waarden in vanuit Supabase: Project Settings → API
 const SUPABASE_URL = "https://bduuymwmpjxnkhunreyl.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_PYkma9AgJZyhzTmwLRArxg_6Mggyyp8";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJkdXV5bXdtcGp4bmtodW5yZXlsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAzMDEzNTMsImV4cCI6MjA4NTg3NzM1M30.jD64IVrN3e9Qjb9Xq1PzMQxplhLmM5FCOtV31gfE8Sc";
 
 // 2) Maak Supabase client (sb) via de CDN library in index.html
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
