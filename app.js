@@ -3,8 +3,8 @@
 // ===============================
 
 // 1) Vul deze 2 waarden in vanuit Supabase: Project Settings → API
-const SUPABASE_URL = "https://bduuymwmpjxnkhunreyl.supabase.co"; // jouw URL
-const SUPABASE_ANON_KEY = "PASTE_HIER_JE_ANON_PUBLIC_KEY";       // jouw anon public key
+const SUPABASE_URL = "https://bduuymwmpjxnkhunreyl.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_PYkma9AgJZyhzTmwLRArxg_6Mggyyp8";
 
 // 2) Maak Supabase client (sb) via de CDN library in index.html
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
