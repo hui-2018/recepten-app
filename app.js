@@ -208,7 +208,7 @@ async function renderDocs() {
           <div><strong>${escapeHtml(d.title || "(zonder titel)")}</strong></div>
           <div class="muted">Laatst aangepast: ${new Date(d.updatedAt).toLocaleString()}</div>
           <div class="badges">
-            ${(d.tags || []).map(t => <span class="badge">${escapeHtml(t)}</span>).join("")}
+            ${(d.tags || []).map(t => `<span class="badge">${escapeHtml(t)}</span>`).join("")}
           </div>
         </div>
         <div><button data-open="${d.id}">Open</button></div>
@@ -229,7 +229,7 @@ async function renderFavorites() {
   if (!ul) return;
 
   if (!currentUser) {
-    ul.innerHTML = <li class="muted">Login om favorieten te zien.</li>;
+    ul.innerHTML = `<li class="muted">Login om favorieten te zien.</li>`;
     return;
   }
 
@@ -247,25 +247,26 @@ async function renderFavorites() {
   ul.innerHTML = "";
 
   if (!data || data.length === 0) {
-    ul.innerHTML = <li class="muted">Nog geen favorieten.</li>;
+   ul.innerHTML = `<li class="muted">Nog geen favorieten.</li>`;
     return;
   }
 
   for (const f of data) {
     const li = document.createElement("li");
     li.className = "item";
-    li.innerHTML = 
-      <div class="itemTop">
-        <div>
-          <div><strong>${escapeHtml(f.name)}</strong></div>
-          <div class="muted">Query: ${escapeHtml(f.query)}</div>
-        </div>
-        <div style="display:flex; gap:8px;">
-          <button data-run="${f.id}">Gebruik</button>
-          <button data-del="${f.id}" class="danger">X</button>
-        </div>
-      </div>
-    ;
+   li.innerHTML = `
+  <div class="itemTop">
+    <div>
+      <div><strong>${escapeHtml(f.name)}</strong></div>
+      <div class="muted">Query: ${escapeHtml(f.query)}</div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button data-run="${f.id}">Gebruik</button>
+      <button data-del="${f.id}" class="danger">X</button>
+    </div>
+  </div>
+`;
+
     ul.appendChild(li);
   }
 
