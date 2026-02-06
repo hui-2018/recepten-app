@@ -556,13 +556,22 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("btnLogin").addEventListener("click", loginWithMagicLink);
   $("btnLogout").addEventListener("click", logout);
 
-  sb.auth.onAuthStateChange(async () => {
-    await refreshAuth();
+sb.auth.onAuthStateChange(async (event) => {
+  await refreshAuth();
+
+  // Alleen data laden wanneer je effectief ingelogd bent
+  if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
     await renderDocs();
     await renderFavorites();
-  });
+  }
 
-  await refreshAuth();
-  await renderDocs();
-  await renderFavorites();
+  // Bij logout UI leegmaken
+  if (event === "SIGNED_OUT") {
+    $("docsMeta").textContent = "Login om je recepten te zien.";
+    $("docsList").innerHTML = "";
+    $("favList").innerHTML = `<li class="muted">Login om favorieten te zien.</li>`;
+    $("resultsMeta").textContent = "";
+    $("resultsList").innerHTML = "";
+  }
 });
+
