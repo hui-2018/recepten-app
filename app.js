@@ -549,28 +549,34 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("btnDelete").addEventListener("click", deleteDoc);
 
   $("btnSearch").addEventListener("click", runSearch);
-  $("searchInput").addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
+  $("searchInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") runSearch();
+  });
 
   $("btnSaveFav").addEventListener("click", saveFavorite);
 
   $("btnLogin").addEventListener("click", loginWithMagicLink);
   $("btnLogout").addEventListener("click", logout);
 
-sb.auth.onAuthStateChange(async (event) => {
+  sb.auth.onAuthStateChange(async (event) => {
+    await refreshAuth();
+
+    if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+      await renderDocs();
+      await renderFavorites();
+    }
+
+    if (event === "SIGNED_OUT") {
+      $("docsMeta").textContent = "Login om je recepten te zien.";
+      $("docsList").innerHTML = "";
+      $("favList").innerHTML = `<li class="muted">Login om favorieten te zien.</li>`;
+      $("resultsMeta").textContent = "";
+      $("resultsList").innerHTML = "";
+    }
+  });
+
+  // Initieel laden
   await refreshAuth();
-
-  // Alleen data laden wanneer je effectief ingelogd bent
-  if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
-    await renderDocs();
-    await renderFavorites();
-  }
-
-  // Bij logout UI leegmaken
-  if (event === "SIGNED_OUT") {
-    $("docsMeta").textContent = "Login om je recepten te zien.";
-    $("docsList").innerHTML = "";
-    $("favList").innerHTML = `<li class="muted">Login om favorieten te zien.</li>`;
-    $("resultsMeta").textContent = "";
-    $("resultsList").innerHTML = "";
-  }
+  await renderDocs();
+  await renderFavorites();
 });
