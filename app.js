@@ -1,17 +1,15 @@
 // ===============================
-// Recepten DB (Supabase Cloud) - CLEAN VERSION
+// Recepten DB (Drive-link versie)
 // ===============================
 
-// 1) Vul deze 2 waarden in vanuit Supabase: Project Settings → API
+// Vul deze 2 waarden in vanuit Supabase: Project Settings → API
 const SUPABASE_URL = "https://bduuymwmpjxnkhunreyl.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJkdXV5bXdtcGp4bmtodW5yZXlsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAzMDEzNTMsImV4cCI6MjA4NTg3NzM1M30.jD64IVrN3e9Qjb9Xq1PzMQxplhLmM5FCOtV31gfE8Sc";
 
-// 2) Supabase client via CDN (index.html laadt @supabase/supabase-js@2)
+// Supabase client via CDN
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// -------------------------------
 // Helpers
-// -------------------------------
 const $ = (id) => document.getElementById(id);
 
 function setStatus(msg, kind = "") {
@@ -51,13 +49,19 @@ function tagsToString(tags) {
 }
 
 function appBaseUrl() {
-  // jouw GitHub Pages app root
   return "https://hui-2018.github.io/recepten-app/";
 }
 
-// -------------------------------
+// (optioneel) maak van een Drive link een preview link
+function drivePreviewUrl(url) {
+  if (!url) return "";
+  const m1 = url.match(/\/file\/d\/([^/]+)/);
+  const m2 = url.match(/[?&]id=([^&]+)/);
+  const fileId = (m1 && m1[1]) || (m2 && m2[1]) || "";
+  return fileId ? `https://drive.google.com/file/d/${fileId}/preview` : url;
+}
+
 // State
-// -------------------------------
 let currentUser = null;
 
 // -------------------------------
@@ -189,7 +193,7 @@ async function renderDocs() {
   const { data, error } = await sb
     .from("recipes")
     .select(`
-      id, title, content, updated_at, user_id,
+      id, title, drive_url, updated_at, user_id,
       recipe_tags ( tags ( id, name ) )
     `)
     .eq("user_id", currentUser.id)
@@ -200,7 +204,7 @@ async function renderDocs() {
   const docs = (data || []).map(r => ({
     id: r.id,
     title: r.title,
-    content: r.content,
+    driveUrl: r.drive_url,
     updatedAt: r.updated_at,
     tags: (r.recipe_tags || []).map(rt => rt.tags?.name).filter(Boolean)
   }));
@@ -209,6 +213,8 @@ async function renderDocs() {
   list.innerHTML = "";
 
   for (const d of docs) {
+    const pdfLink = d.driveUrl ? d.driveUrl : "#";
+    const pdfDisabled = d.driveUrl ? "" : "style='pointer-events:none;opacity:.5;'";
     const li = document.createElement("li");
     li.className = "item";
     li.innerHTML = `
@@ -220,7 +226,10 @@ async function renderDocs() {
             ${(d.tags || []).map(t => `<span class="badge">${escapeHtml(t)}</span>`).join("")}
           </div>
         </div>
-        <div><button data-open="${d.id}">Open</button></div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button data-open="${d.id}">Open</button>
+          <a class="secondary" href="${escapeHtml(pdfLink)}" target="_blank" ${pdfDisabled}>PDF</a>
+        </div>
       </div>
     `;
     list.appendChild(li);
@@ -314,6 +323,8 @@ function renderResults(results, query) {
   ul.innerHTML = "";
 
   for (const d of results) {
+    const pdfLink = d.driveUrl ? d.driveUrl : "#";
+    const pdfDisabled = d.driveUrl ? "" : "style='pointer-events:none;opacity:.5;'";
     const li = document.createElement("li");
     li.className = "item";
     li.innerHTML = `
@@ -324,7 +335,10 @@ function renderResults(results, query) {
             ${(d.tags || []).map(t => `<span class="badge">${escapeHtml(t)}</span>`).join("")}
           </div>
         </div>
-        <div><button data-open="${d.id}">Open</button></div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button data-open="${d.id}">Open</button>
+          <a class="secondary" href="${escapeHtml(pdfLink)}" target="_blank" ${pdfDisabled}>PDF</a>
+        </div>
       </div>
     `;
     ul.appendChild(li);
@@ -344,7 +358,12 @@ async function clearEditor() {
   $("docId").value = "";
   $("docTitle").value = "";
   $("docTags").value = "";
-  $("docContent").value = "";
+  $("docDriveUrl").value = "";
+
+  const a = $("docOpenLink");
+  a.style.display = "none";
+  a.href = "#";
+
   $("editorTitle").textContent = "Editor";
   setStatus("");
 }
@@ -355,7 +374,7 @@ async function loadDoc(id) {
   const { data, error } = await sb
     .from("recipes")
     .select(`
-      id,title,content,updated_at,user_id,
+      id,title,drive_url,updated_at,user_id,
       recipe_tags ( tags ( name ) )
     `)
     .eq("id", id)
@@ -366,10 +385,20 @@ async function loadDoc(id) {
 
   $("docId").value = String(data.id);
   $("docTitle").value = data.title || "";
-  $("docContent").value = data.content || "";
 
   const tags = (data.recipe_tags || []).map(rt => rt.tags?.name).filter(Boolean);
   $("docTags").value = tagsToString(tags);
+
+  $("docDriveUrl").value = data.drive_url || "";
+
+  const a = $("docOpenLink");
+  if (data.drive_url) {
+    a.href = data.drive_url;
+    a.style.display = "inline";
+  } else {
+    a.href = "#";
+    a.style.display = "none";
+  }
 
   $("editorTitle").textContent = `Editor (ID: ${data.id})`;
   setStatus("Document geladen.", "ok");
@@ -380,19 +409,17 @@ async function saveDoc() {
 
   const idRaw = $("docId").value.trim();
   const title = $("docTitle").value.trim();
-  const content = $("docContent").value;
+  const drive_url = $("docDriveUrl").value.trim();
   const tagNames = normalizeTags($("docTags").value);
 
-  if (!title && !content.trim()) {
-    setStatus("Geef minstens een titel of inhoud.", "err");
-    return;
-  }
+  if (!title) { setStatus("Geef een titel.", "err"); return; }
+  if (!drive_url) { setStatus("Plak de Google Drive link naar je PDF.", "err"); return; }
 
   if (idRaw) {
     const id = Number(idRaw);
     const { error } = await sb
       .from("recipes")
-      .update({ title, content, updated_at: new Date().toISOString() })
+      .update({ title, drive_url, updated_at: new Date().toISOString() })
       .eq("id", id)
       .eq("user_id", currentUser.id);
 
@@ -412,7 +439,7 @@ async function saveDoc() {
       .insert([{
         user_id: currentUser.id,
         title,
-        content,
+        drive_url,
         updated_at: new Date().toISOString()
       }])
       .select("id")
@@ -433,6 +460,11 @@ async function saveDoc() {
     $("editorTitle").textContent = `Editor (ID: ${newId})`;
     setStatus("Nieuw document opgeslagen.", "ok");
   }
+
+  // update "open link" in editor
+  const a = $("docOpenLink");
+  a.href = drive_url;
+  a.style.display = "inline";
 
   await renderDocs();
 }
@@ -487,7 +519,7 @@ async function runSearch() {
     .from("recipe_tags")
     .select(`
       recipe_id,
-      recipes ( id,title,updated_at,user_id, recipe_tags ( tags ( name ) ) )
+      recipes ( id,title,drive_url,updated_at,user_id, recipe_tags ( tags ( name ) ) )
     `)
     .in("tag_id", tagIds);
 
@@ -501,7 +533,13 @@ async function runSearch() {
 
     if (!map.has(rec.id)) {
       const recTags = (rec.recipe_tags || []).map(rt => rt.tags?.name).filter(Boolean);
-      map.set(rec.id, { id: rec.id, title: rec.title, updatedAt: rec.updated_at, tags: recTags });
+      map.set(rec.id, {
+        id: rec.id,
+        title: rec.title,
+        driveUrl: rec.drive_url,
+        updatedAt: rec.updated_at,
+        tags: recTags
+      });
     }
   }
 
@@ -579,7 +617,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // Initieel
   await refreshAuth();
   await renderDocs();
   await renderFavorites();
