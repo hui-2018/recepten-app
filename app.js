@@ -2,7 +2,8 @@
    - magic link login
    - recipes table: id (bigint/uuid), user_id (uuid), title (text), tags (text[]), drive_url (text), updated_at (timestamptz)
    - zoeken in tags (client-side)
-   - favoriete zoekopdrachten (localStorage)
+   - zoeken in titel (server-side ilike)  <-- NIEUW
+   - favoriete zoekopdrachten (localStorage) (voor tags-zoek)
    - CSV import (title,tags,drive_url) met quotes support
 */
 
@@ -54,17 +55,13 @@ function escapeHtml(s) {
 }
 
 function toPreviewUrl(url) {
-  // Laat originele url in DB; gebruik preview voor openknop
-  // - file: https://drive.google.com/file/d/<id>/view
-  // - doc:  https://docs.google.com/document/d/<id>/edit
-  // Voor beide werkt "open?id=<id>" meestal als preview/startpunt
   const m = String(url || "").match(/\/d\/([^/]+)/);
   if (m && m[1]) return `https://drive.google.com/open?id=${m[1]}`;
   return url || "";
 }
 
 // ==============================
-// Favorites (localStorage)
+// Favorites (localStorage) - voor tags-zoek
 // ==============================
 function favKey() {
   return `recepten_favs_${currentUser?.id || "anon"}`;
@@ -85,6 +82,7 @@ function saveFavs(favs) {
 function renderFavs() {
   const list = $("favList");
   const favs = loadFavs();
+
   if (!currentUser) {
     list.innerHTML = `<li class="muted">Login om favorieten te zien.</li>`;
     return;
@@ -99,7 +97,7 @@ function renderFavs() {
       <div class="itemTop">
         <div>
           <strong>${escapeHtml(f.name)}</strong>
-          <div class="muted">Zoekterm: ${escapeHtml(f.q)}</div>
+          <div class="muted">Zoekterm (tags): ${escapeHtml(f.q)}</div>
         </div>
         <div class="actions">
           <button class="btn small secondary" data-run="${idx}">Run</button>
@@ -114,7 +112,7 @@ function renderFavs() {
       const i = Number(btn.getAttribute("data-run"));
       const f = loadFavs()[i];
       $("searchInput").value = f.q;
-      runSearch();
+      runTagSearch();
     });
   });
 
@@ -154,7 +152,7 @@ async function loginWithMagicLink() {
   $("btnLogin").disabled = true;
   try {
     setStatus("Login link wordt verstuurd… (kijk ook in spam)", "muted");
-    const redirectTo = window.location.origin + window.location.pathname; // current page
+    const redirectTo = window.location.origin + window.location.pathname;
     const { error } = await sb.auth.signInWithOtp({
       email,
       options: { emailRedirectTo: redirectTo }
@@ -218,7 +216,6 @@ async function loadRecipe(id) {
 async function upsertRecipe(payload) {
   if (!currentUser) throw new Error("Niet ingelogd.");
 
-  // Insert/update enkel voor eigen user via RLS
   const nowIso = new Date().toISOString();
 
   if (currentRecipeId) {
@@ -286,7 +283,7 @@ async function renderDocs() {
       const tags = (d.tags || []).slice(0, 6);
       const tagsHtml = tags.map(t => `<span class="badge">${escapeHtml(t)}</span>`).join("");
       const updated = d.updated_at ? new Date(d.updated_at).toLocaleString() : "";
-      const hasPdf = !!(d.drive_url && String(d.drive_url).trim());
+      const hasDrive = !!(d.drive_url && String(d.drive_url).trim());
       return `
         <li class="item">
           <div class="itemTop">
@@ -297,7 +294,7 @@ async function renderDocs() {
             </div>
             <div class="actions">
               <button class="btn small secondary" data-open="${d.id}">Open</button>
-              ${hasPdf ? `<a class="linkPdf" href="${escapeHtml(toPreviewUrl(d.drive_url))}" target="_blank" rel="noopener">PDF</a>` : ``}
+              ${hasDrive ? `<a class="linkPdf" href="${escapeHtml(toPreviewUrl(d.drive_url))}" target="_blank" rel="noopener">Open</a>` : ``}
             </div>
           </div>
         </li>
@@ -332,31 +329,11 @@ function clearEditor() {
   $("driveUrl").value = "";
 }
 
-async function runSearch() {
-  const q = $("searchInput").value.trim().toLowerCase();
+function renderSearchResults(hits, label) {
   const meta = $("resultsMeta");
   const list = $("resultsList");
 
-  if (!currentUser) {
-    meta.textContent = "Login om te zoeken.";
-    list.innerHTML = "";
-    return;
-  }
-
-  if (!q) {
-    meta.textContent = "";
-    list.innerHTML = "";
-    return;
-  }
-
-  // client-side filter op tags
-  const docs = cacheRecipes.length ? cacheRecipes : await fetchRecipes();
-  const hits = docs.filter(d => {
-    const tags = (d.tags || []).map(t => String(t).toLowerCase());
-    return tags.some(t => t.includes(q));
-  });
-
-  meta.textContent = `${hits.length} resultaat/resultaten voor "${q}".`;
+  meta.textContent = label || "";
   if (!hits.length) {
     list.innerHTML = `<li class="muted">Geen resultaten.</li>`;
     return;
@@ -390,12 +367,69 @@ async function runSearch() {
   });
 }
 
+// ==============================
+// Zoeken 1: tags (client-side) - bestond al
+// ==============================
+async function runTagSearch() {
+  const q = $("searchInput").value.trim().toLowerCase();
+
+  if (!currentUser) {
+    renderSearchResults([], "Login om te zoeken.");
+    return;
+  }
+  if (!q) {
+    $("resultsMeta").textContent = "";
+    $("resultsList").innerHTML = "";
+    return;
+  }
+
+  const docs = cacheRecipes.length ? cacheRecipes : await fetchRecipes();
+  const hits = docs.filter(d => {
+    const tags = (d.tags || []).map(t => String(t).toLowerCase());
+    return tags.some(t => t.includes(q));
+  });
+
+  renderSearchResults(hits, `${hits.length} resultaat/resultaten voor tag "${q}".`);
+}
+
+// ==============================
+// Zoeken 2: titel (server-side ilike) - NIEUW
+// ==============================
+async function runTitleSearch() {
+  const q = $("titleSearchInput").value.trim();
+
+  if (!currentUser) {
+    renderSearchResults([], "Login om te zoeken.");
+    return;
+  }
+  if (!q) {
+    $("resultsMeta").textContent = "";
+    $("resultsList").innerHTML = "";
+    return;
+  }
+
+  try {
+    const { data, error } = await sb
+      .from("recipes")
+      .select("id,title,tags,drive_url,updated_at")
+      .ilike("title", `%${q}%`)
+      .order("updated_at", { ascending: false });
+
+    if (error) throw error;
+
+    const hits = data || [];
+    renderSearchResults(hits, `${hits.length} resultaat/resultaten voor titel "${q}".`);
+  } catch (e) {
+    setStatus("Titel-zoek fout: " + (e?.message || e), "err");
+  }
+}
+
 function saveFavoriteSearch() {
   if (!currentUser) return setStatus("Login om favorieten te bewaren.", "err");
 
   const q = $("searchInput").value.trim();
   const name = $("favName").value.trim();
-  if (!q) return setStatus("Vul eerst een zoekterm in.", "err");
+  if (!q) return setStatus("Vul eerst een tags-zoekterm in.", "err");
   if (!name) return setStatus("Geef een naam voor je favoriet.", "err");
 
   const favs = loadFavs();
@@ -410,7 +444,6 @@ function saveFavoriteSearch() {
 // CSV import
 // ==============================
 function parseCsv(text) {
-  // Robuuste parser: comma-separated, ondersteunt quotes en escaped quotes
   const rows = [];
   let row = [];
   let cur = "";
@@ -420,7 +453,7 @@ function parseCsv(text) {
     const ch = text[i];
     const next = text[i + 1];
 
-    if (ch === '"' && next === '"') { // escaped quote
+    if (ch === '"' && next === '"') {
       cur += '"';
       i++;
       continue;
@@ -445,7 +478,6 @@ function parseCsv(text) {
     cur += ch;
   }
 
-  // last cell
   if (cur.length || row.length) {
     row.push(cur);
     if (row.some(c => String(c).trim() !== "")) rows.push(row);
@@ -469,7 +501,7 @@ async function importCsvText(csvText) {
     return setStatus('CSV moet kolommen "title" en "drive_url" hebben (en optioneel "tags").', "err");
   }
 
-  // Dedupe op drive_url: haal bestaande urls op
+  // Dedupe op drive_url (client-side) + database unique index is extra safety
   const existingUrls = new Set((cacheRecipes || []).map(r => String(r.drive_url || "").trim()).filter(Boolean));
 
   const inserts = [];
@@ -480,7 +512,7 @@ async function importCsvText(csvText) {
     const tags = iTags === -1 ? [] : normalizeTagsInput(String(cols[iTags] || ""));
 
     if (!title || !driveUrl) continue;
-    if (existingUrls.has(driveUrl)) continue; // overslaan dubbels
+    if (existingUrls.has(driveUrl)) continue;
 
     inserts.push({
       user_id: currentUser.id,
@@ -490,13 +522,11 @@ async function importCsvText(csvText) {
       updated_at: new Date().toISOString()
     });
 
-    // Voeg direct toe zodat we in dezelfde import-run geen dubbels krijgen
     existingUrls.add(driveUrl);
   }
 
   if (!inserts.length) return setStatus("Geen nieuwe rijen om te importeren (of alles waren dubbels).", "muted");
 
-  // Batch insert
   const BATCH = 200;
   $("btnImport").disabled = true;
 
@@ -589,11 +619,19 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  $("btnSearch").addEventListener("click", runSearch);
+  // Tags-zoek
+  $("btnSearch").addEventListener("click", runTagSearch);
   $("searchInput").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") runSearch();
+    if (e.key === "Enter") runTagSearch();
   });
 
+  // Titel-zoek (nieuw)
+  $("btnTitleSearch").addEventListener("click", runTitleSearch);
+  $("titleSearchInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") runTitleSearch();
+  });
+
+  // Favorieten (voor tags-zoek)
   $("btnSaveFav").addEventListener("click", saveFavoriteSearch);
 
   // CSV import UI
